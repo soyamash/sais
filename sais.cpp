@@ -112,79 +112,65 @@ int inducedSort(std::vector<T> &M, std::vector<size_t> &lms_vector, size_t alpha
   }
 
   /* LMS部分文字列に重複がある場合は再起でソートする */
-  std::vector<std::pair<int, int> > lms_uniq; // LMSの異なりを記録する(出現位置, 長さ)
-  lms_uniq.reserve(M_len);
-  bool lms_dedup_flag = false;
-  std::vector<size_t> lms_bucket;
-  lms_bucket.resize(M_len);
+  bool lms_dedup_flag = false;  // LMS-substring重複フラグ
+  std::vector<int> lms_bucket;  // LMSを出現位置（M_idx）順に並べ変えるためのバケット
+  lms_bucket.resize(M_len, -1);
+  std::pair<int, int> prev; // 一個前のLMS-substring（出現位置, 長さ）
+  int lms_id = 0; // LMS部分文字列に割り当てるID
+  std::vector<size_t> correct_lms_vector; // 重複無しの場合はSA中の順でLMSの正しい順序が得られる
+  correct_lms_vector.reserve(M_len / 2);
   for (int sm_idx = 0; sm_idx < alphabet_size; sm_idx++) {
     for (auto M_idx : bucket[sm_idx]) {
-      if (LMS[M_idx] == true) {
-        int lms_len = 1;
-        if (M_idx != M_len - 1) {
-          while (LMS[M_idx + lms_len] == false) {
-            lms_len++;
-          }
+      if (LMS[M_idx] == false) continue;
+      int lms_len = 1;
+      if (M_idx != M_len - 1) {
+        while (LMS[M_idx + lms_len] == false) {
           lms_len++;
         }
-        // 重複があるか否か（＝一個前のLMS部分文字列と一致するか否か）
-        if (lms_uniq.size() == 0) {
-          lms_uniq.emplace_back(std::make_pair(M_idx, lms_len));
-        } else {
-          auto prev = lms_uniq.back();
-          if (lms_len == prev.second) {
-            bool uniq_flag = false;
-            for (int cmp_idx = 0; cmp_idx < lms_len; cmp_idx++) {
-              if (M[M_idx + cmp_idx] == M[prev.first + cmp_idx]) continue;
-              uniq_flag = true;
-              break;
-            }
-            if (uniq_flag == false) {
-              lms_dedup_flag = true;
-            } else {
-              lms_uniq.emplace_back(std::make_pair(M_idx, lms_len));
-            }
-          } else {
-            lms_uniq.emplace_back(std::make_pair(M_idx, lms_len));
-          }
-        }
-        lms_bucket[M_idx] = lms_uniq.size(); // LMS部分文字列に割り当てるID。1️オリジンとし、0は空けておく
+        lms_len++;
       }
+      // 重複があるか否か（＝一個前のLMS部分文字列と一致するか否か）
+      if (lms_len == prev.second) {
+        bool uniq_flag = false;
+        for (int cmp_idx = 0; cmp_idx < lms_len; cmp_idx++) {
+          if (M[M_idx + cmp_idx] == M[prev.first + cmp_idx]) continue;
+          uniq_flag = true;
+          break;
+        }
+        if (uniq_flag == false) {
+          lms_dedup_flag = true;
+        } else {
+          prev.first = M_idx;
+          prev.second = lms_len;
+          correct_lms_vector.emplace_back(M_idx);
+        }
+      } else {
+        prev.first = M_idx;
+        prev.second = lms_len;
+        correct_lms_vector.emplace_back(M_idx);
+      }
+      lms_bucket[M_idx] = ++lms_id; // 辞書順でIDを振る
     }
   }
 
-  std::vector<size_t> correct_lms_vector;
-  correct_lms_vector.reserve(M_len / 2);
-  std::vector<int> replaced_M;
-  replaced_M.reserve(M_len / 2);
-  std::vector<size_t> lms_M_idx_vec;
-  lms_M_idx_vec.reserve(M_len / 2);
-  for (size_t lms_bucket_idx = 0, lms_bucket_end = lms_bucket.size(); lms_bucket_idx < lms_bucket_end; lms_bucket_idx++) {
-    size_t lms_id = lms_bucket[lms_bucket_idx];
-    if (lms_id == 0) continue;  // bucketは空
-    replaced_M.emplace_back(lms_id);
-    lms_M_idx_vec.emplace_back(lms_bucket_idx);
-  }
   if (lms_dedup_flag) {
+    std::vector<int> replaced_M;
+    replaced_M.reserve(M_len / 2);
+    std::vector<size_t> lms_M_idx_vec;
+    lms_M_idx_vec.reserve(M_len / 2);
+    for (size_t lms_bucket_idx = 0, lms_bucket_end = lms_bucket.size(); lms_bucket_idx < lms_bucket_end; lms_bucket_idx++) {
+      if (lms_bucket[lms_bucket_idx] == -1) continue;  // bucketは空
+      replaced_M.emplace_back(lms_bucket[lms_bucket_idx]);  // 出現順に並び替える（LMS-substringの結合文字列に対応）
+      lms_M_idx_vec.emplace_back(lms_bucket_idx); // M_idxを保存
+    }
     std::vector<size_t> replaced_sa;
     std::vector<size_t> dummy;
-    inducedSort(replaced_M, dummy, lms_uniq.size() + 1, replaced_sa);
+    inducedSort(replaced_M, dummy, lms_id + 1, replaced_sa);
+    correct_lms_vector.clear();
     for (auto replaced_M_idx : replaced_sa) {
       correct_lms_vector.emplace_back(lms_M_idx_vec[replaced_M_idx]);
     }
-  } else {
-    std::vector<int> replaced_M_bucket;
-    replaced_M_bucket.resize(replaced_M.size() + 1, 0);
-    replaced_M_bucket[0] = -1; // 0は使わなかったので無効
-    for (int r_idx = 0; r_idx < replaced_M.size(); r_idx++) {
-      replaced_M_bucket[replaced_M[r_idx]] = r_idx;
-    }
-    
-    for (auto r_idx: replaced_M_bucket) {
-      if (r_idx == -1) continue;
-      correct_lms_vector.emplace_back(lms_M_idx_vec[r_idx]);
-    }
-  }
+  } 
   M.pop_back();  // 終端文字削除
   inducedSort(M, correct_lms_vector, alphabet_size, sa);
   return 0;
@@ -266,7 +252,7 @@ int main() {
   //   }
   // }
 
-  std::string s = "abcdefghijk";
+  std::string s = "ioioioioioioioio";
 
   std::vector<unsigned char> array;
  
